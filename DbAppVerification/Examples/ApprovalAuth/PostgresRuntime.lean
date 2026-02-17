@@ -1,5 +1,6 @@
 import Std
 import DbAppVerification.Framework.SQLDSL
+import DbAppVerification.Framework.SQLDSLPostgres
 import DbAppVerification.Examples.ApprovalAuth.SpecA
 import DbAppVerification.Examples.ApprovalAuth.ImplB
 import DbAppVerification.Postgres.Client
@@ -32,75 +33,32 @@ private def mapPgErr : PgErr → Err
   | .decodeError _ => .constraintViolation
   | .txError _ => .constraintViolation
 
-private def execStatement (conn : Connection) (stmt : String) (named : List (String × String)) : IO (Except Err Unit) := do
-  let stmtPg := rewriteAssertToPostgres stmt
-  let bound := bindNamedParams stmtPg named
-  match (← Postgres.exec conn bound.sql bound.params) with
-  | .ok _ => pure (.ok ())
-  | .error e => pure (.error (mapPgErr e))
-
-private def rollbackIgnore (conn : Connection) : IO Unit := do
-  let _ ← Postgres.exec conn "ROLLBACK" #[]
-  pure ()
-
-private def commitOrRollback (conn : Connection) (res : Except Err Unit) : IO (Except Err Unit) := do
-  match res with
-  | .error e =>
-      rollbackIgnore conn
-      pure (.error e)
-  | .ok _ =>
-      match (← Postgres.exec conn "COMMIT" #[]) with
-      | .ok _ => pure (.ok ())
-      | .error e =>
-          rollbackIgnore conn
-          pure (.error (mapPgErr e))
-
-private partial def execStatements
-    (conn : Connection)
-    (stmts : List String)
-    (named : List (String × String)) : IO (Except Err Unit) := do
-  match stmts with
-  | [] =>
-      pure (.ok ())
-  | stmt :: rest =>
-      match (← execStatement conn stmt named) with
-      | .error e => pure (.error e)
-      | .ok _ => execStatements conn rest named
+private def mapRuntimeErr : Framework.SQLDSLPostgres.RuntimeErr → Err
+  | .unknownHandler _ => .constraintViolation
+  | .pg e => mapPgErr e
 
 /-- Execute one command in one SQL transaction using emitted handler SQL. -/
 def execCommandTx (conn : Connection) (cmd : Cmd) : IO (Except Err Unit) := do
-  match (← Postgres.exec conn "BEGIN" #[]) with
-  | .error e =>
-      pure (.error (mapPgErr e))
-  | .ok _ =>
-      let handlerSql :=
-        match emitHandlerSQL handlers (cmdTag cmd) with
-        | .ok sql => some sql
-        | .error _ => none
-      match handlerSql with
-      | none =>
-          rollbackIgnore conn
-          pure (.error .constraintViolation)
-      | some sql =>
-          let named := cmdNamedParams cmd
-          let stmts := splitStatements sql
-          let bodyRes ← execStatements conn stmts named
-          commitOrRollback conn bodyRes
+  match (← Framework.SQLDSLPostgres.execHandlerTxNamed conn handlers (cmdTag cmd) (cmdNamedParams cmd)) with
+  | .ok _ => pure (.ok ())
+  | .error e => pure (.error (mapRuntimeErr e))
 
-private def acceptedFromQuerySql : String :=
-  "SELECT h.doc AS doc FROM proposals p JOIN decisions d ON p.pid = d.pid JOIN histories h ON p.did = h.did AND p.hid = h.hid WHERE p.pid = :pid AND p.\"from\" = :from AND d.kind = 'accept' LIMIT 1"
+private def rowDoc? (row : RowData) : Option String :=
+  match row.cols.get? "histories.doc" with
+  | some (some s) => some s
+  | _ =>
+      match row.cols.get? "doc" with
+      | some (some s) => some s
+      | _ => none
 
 def queryAcceptedFromPg (conn : Connection) (q : Q) : IO (Except Err R) := do
-  let bound := bindNamedParams acceptedFromQuerySql (queryNamedParams q)
-  match (← Postgres.query conn bound.sql bound.params) with
+  match (← Framework.SQLDSLPostgres.execQueryNamed conn acceptedDocQuery (queryNamedParams q)) with
   | .error e =>
-      pure (.error (mapPgErr e))
+      pure (.error (mapRuntimeErr e))
   | .ok [] =>
       pure (.ok none)
   | .ok (row :: _) =>
-      match row.cols.get? "doc" with
-      | some (some s) => pure (.ok (some s))
-      | _ => pure (.ok none)
+      pure (.ok (rowDoc? row))
 
 def stepBPG (conn : Connection) (cmd : Cmd) : IO (Except Err Unit) :=
   execCommandTx conn cmd

@@ -287,7 +287,7 @@ def stepB (b : SB) (cmd : Cmd) : Except Err SB :=
   | .ok b' => .ok b'
   | .error e => .error (mapExecErr e)
 
-private def acceptedDocQuery : Query :=
+def acceptedDocQuery : Query :=
   {
     baseTable := "proposals"
     joins :=

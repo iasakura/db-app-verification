@@ -4,6 +4,7 @@ import DbAppVerification.Framework.Core
 import DbAppVerification.Framework.DB
 import DbAppVerification.Framework.ExportIO
 import DbAppVerification.Framework.SQLDSL
+import DbAppVerification.Framework.SQLDSLPostgres
 import DbAppVerification.Postgres.FFI
 import DbAppVerification.Postgres.Client
 import DbAppVerification.Postgres.Encode
