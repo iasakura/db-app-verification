@@ -1,5 +1,6 @@
 import Std
 import DbAppVerification.Framework.DB
+import DbAppVerification.Framework.ExportIO
 import DbAppVerification.Framework.SQLDSL
 import DbAppVerification.Examples.ApprovalAuth.SpecA
 
@@ -347,6 +348,13 @@ def emitHandlerSQLStrings : List (String × String) :=
 
 def emitHTTPStubsString : String :=
   emitHTTPStubs handlers
+
+def approvalArtifacts : ExportArtifacts :=
+  {
+    ddl := emitDDLString
+    handlers := emitHandlerSQLStrings
+    httpStubs := emitHTTPStubsString
+  }
 
 end ApprovalAuth
 end Examples
