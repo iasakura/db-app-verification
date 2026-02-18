@@ -30,10 +30,10 @@ structure Preservation
     (tsImpl tsAbs : TransitionSystem Cmd Err Q R)
     (Ref : tsImpl.State → tsAbs.State → Prop) : Prop where
   step_success :
-    ∀ {b a c a'},
+    ∀ {b a c b'},
       Ref b a →
-      tsAbs.step a c = .ok a' →
-      ∃ b', tsImpl.step b c = .ok b' ∧ Ref b' a'
+      tsImpl.step b c = .ok b' →
+      ∃ a', tsAbs.step a c = .ok a' ∧ Ref b' a'
   step_error_align :
     ∀ {b a c eB},
       Ref b a →
@@ -48,39 +48,30 @@ theorem soundness
     (tsImpl tsAbs : TransitionSystem Cmd Err Q R)
     (Ref : tsImpl.State → tsAbs.State → Prop)
     (hPres : Preservation tsImpl tsAbs Ref)
-    {b0 : tsImpl.State} {a0 : tsAbs.State} {cmds : List Cmd}
-    {bN : tsImpl.State} {aN : tsAbs.State}
+    {b0 : tsImpl.State} {a0 : tsAbs.State} {cmds : List Cmd} {bN : tsImpl.State}
     (hRef0 : Ref b0 a0)
-    (hRunImpl : tsImpl.run b0 cmds = .ok bN)
-    (hRunAbs : tsAbs.run a0 cmds = .ok aN) :
-    Ref bN aN ∧ ∀ q, tsImpl.query bN q = tsAbs.query aN q := by
-  induction cmds generalizing b0 a0 bN aN with
+    (hRunImpl : tsImpl.run b0 cmds = .ok bN) :
+    ∃ aN, tsAbs.run a0 cmds = .ok aN ∧ Ref bN aN ∧
+      ∀ q, tsImpl.query bN q = tsAbs.query aN q := by
+  induction cmds generalizing b0 a0 bN with
   | nil =>
-      simp [TransitionSystem.run] at hRunImpl hRunAbs
+      simp [TransitionSystem.run] at hRunImpl
       subst hRunImpl
-      subst hRunAbs
-      exact ⟨hRef0, fun q => hPres.query_preserve hRef0⟩
+      refine ⟨a0, by simp [TransitionSystem.run], hRef0, ?_⟩
+      intro q
+      exact hPres.query_preserve hRef0
   | cons c cs ih =>
-      cases hAstep : tsAbs.step a0 c with
+      cases hBstep : tsImpl.step b0 c with
       | error e =>
-          simp [TransitionSystem.run, hAstep] at hRunAbs
-      | ok a1 =>
-          simp [TransitionSystem.run, hAstep] at hRunAbs
-          cases hBstep : tsImpl.step b0 c with
-          | error e =>
-              simp [TransitionSystem.run, hBstep] at hRunImpl
-          | ok b1run =>
-              simp [TransitionSystem.run, hBstep] at hRunImpl
-              have hStep := hPres.step_success hRef0 hAstep
-              rcases hStep with ⟨b1, hBok, hRef1⟩
-              have hb1eq : b1 = b1run := by
-                rw [hBstep] at hBok
-                cases hBok
-                rfl
-              subst hb1eq
-              have hTail := ih hRef1 hRunImpl hRunAbs
-              rcases hTail with ⟨hRefN, hQueryN⟩
-              exact ⟨hRefN, hQueryN⟩
+          simp [TransitionSystem.run, hBstep] at hRunImpl
+      | ok b1 =>
+          simp [TransitionSystem.run, hBstep] at hRunImpl
+          have hStep := hPres.step_success hRef0 hBstep
+          rcases hStep with ⟨a1, hAstep, hRef1⟩
+          have hTail := ih hRef1 hRunImpl
+          rcases hTail with ⟨aN, hRunAbsTail, hRefN, hQueryN⟩
+          refine ⟨aN, ?_, hRefN, hQueryN⟩
+          simp [TransitionSystem.run, hAstep, hRunAbsTail]
 
 end Framework
 end DbAppVerification

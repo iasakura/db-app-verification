@@ -108,13 +108,12 @@ theorem preservation : Preservation tsB tsA Ref := by
   sorry
 
 theorem approval_refinement_sound
-    {b0 : tsB.State} {a0 : tsA.State} {cmds : List Cmd}
-    {bN : tsB.State} {aN : tsA.State}
+    {b0 : tsB.State} {a0 : tsA.State} {cmds : List Cmd} {bN : tsB.State}
     (hRef0 : Ref b0 a0)
-    (hRunA : tsA.run a0 cmds = .ok aN)
     (hRunB : tsB.run b0 cmds = .ok bN) :
-    Ref bN aN ∧ ∀ q, tsB.query bN q = tsA.query aN q := by
-  exact Framework.soundness tsB tsA Ref preservation hRef0 hRunB hRunA
+    ∃ aN, tsA.run a0 cmds = .ok aN ∧ Ref bN aN ∧
+      ∀ q, tsB.query bN q = tsA.query aN q := by
+  exact Framework.soundness tsB tsA Ref preservation hRef0 hRunB
 
 end ApprovalAuth
 end Examples
