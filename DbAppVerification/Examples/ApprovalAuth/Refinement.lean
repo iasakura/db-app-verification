@@ -104,7 +104,8 @@ def abs (db : SB) : SA :=
 abbrev Ref : SB → SA → Prop := RefOfAbs abs
 
 /-- TODO: mechanize command and query preservation against DSL semantics. -/
-axiom preservation : Preservation tsB tsA Ref
+theorem preservation : Preservation tsB tsA Ref := by
+  sorry
 
 theorem approval_refinement_sound
     {b0 : tsB.State} {a0 : tsA.State} {cmds : List Cmd}

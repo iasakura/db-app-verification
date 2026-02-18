@@ -88,11 +88,6 @@ def approvalSchema : Schema :=
       ]
   }
 
-private def seqMany : List Stmt → Stmt
-  | [] => .return (.lit (.bool true))
-  | [s] => s
-  | s :: ss => .seq s (seqMany ss)
-
 private def existsBy (table : String) (pred : Pred) : Pred :=
   .exists { baseTable := table, where? := some pred, project := [] }
 
@@ -118,93 +113,89 @@ private def newDocumentStmt : Stmt :=
   ]
 
 private def addHistoryStmt : Stmt :=
-  seqMany
-    [
-      assertMsg
-        (existsBy "documents" (.eq (.col "did") (.param "did")))
-        "missingDoc",
-      .insert "histories" (.param "hkey")
-        [
-          ("hkey", .param "hkey"),
-          ("did", .param "did"),
-          ("hid", .param "hid"),
-          ("doc", .param "doc")
-        ]
-    ]
+  dsl{
+    assertMsg
+      (existsBy "documents" (.col "did" === .param "did"))
+      "missingDoc";
+    .insert "histories" (.param "hkey")
+      [
+        ("hkey", .param "hkey"),
+        ("did", .param "did"),
+        ("hid", .param "hid"),
+        ("doc", .param "doc")
+      ]
+  }
 
 private def proposeStmt : Stmt :=
-  seqMany
-    [
-      assertMsg (existsBy "employees" (.eq (.col "eid") (.param "from"))) "notEmployed",
-      assertMsg (existsBy "employees" (.eq (.col "eid") (.param "to"))) "notEmployed",
-      assertMsg
-        (existsBy "managers" (.and
-          (.eq (.col "mid") (.param "to"))
-          (.eq (.col "eid") (.param "from"))))
-        "notManager",
-      assertMsg
-        (existsBy "documents" (.eq (.col "did") (.param "did")))
-        "missingDoc",
-      assertMsg
-        (existsBy "histories" (.and
-          (.eq (.col "did") (.param "did"))
-          (.eq (.col "hid") (.param "hid"))))
-        "missingHistory",
-      .insert "proposals" (.param "pid")
-        [
-          ("pid", .param "pid"),
-          ("from", .param "from"),
-          ("to", .param "to"),
-          ("did", .param "did"),
-          ("hid", .param "hid")
-        ]
-    ]
+  dsl{
+    assertMsg (existsBy "employees" (.col "eid" === .param "from")) "notEmployed";
+    assertMsg (existsBy "employees" (.col "eid" === .param "to")) "notEmployed";
+    assertMsg
+      (existsBy "managers"
+        ((.col "mid" === .param "to") &&&
+         (.col "eid" === .param "from")))
+      "notManager";
+    assertMsg
+      (existsBy "documents" (.col "did" === .param "did"))
+      "missingDoc";
+    assertMsg
+      (existsBy "histories"
+        ((.col "did" === .param "did") &&&
+         (.col "hid" === .param "hid")))
+      "missingHistory";
+    .insert "proposals" (.param "pid")
+      [
+        ("pid", .param "pid"),
+        ("from", .param "from"),
+        ("to", .param "to"),
+        ("did", .param "did"),
+        ("hid", .param "hid")
+      ]
+  }
 
 private def acceptStmt : Stmt :=
-  seqMany
-    [
-      assertMsg
-        (existsBy "proposals" (.eq (.col "pid") (.param "pid")))
-        "missingProposal",
-      assertMsg
-        (existsBy "proposals" (.and
-          (.eq (.col "pid") (.param "pid"))
-          (.eq (.col "to") (.param "by"))))
-        "unauthorized",
-      assertMsg
-        (.not (existsBy "decisions" (.eq (.col "pid") (.param "pid"))))
-        "alreadyDecided",
-      .insert "decisions" (.param "pid")
-        [
-          ("pid", .param "pid"),
-          ("by", .param "by"),
-          ("kind", .lit (.str "accept")),
-          ("comment", .lit (.str ""))
-        ]
-    ]
+  dsl{
+    assertMsg
+      (existsBy "proposals" (.col "pid" === .param "pid"))
+      "missingProposal";
+    assertMsg
+      (existsBy "proposals"
+        ((.col "pid" === .param "pid") &&&
+         (.col "to" === .param "by")))
+      "unauthorized";
+    assertMsg
+      (.not (existsBy "decisions" (.col "pid" === .param "pid")))
+      "alreadyDecided";
+    .insert "decisions" (.param "pid")
+      [
+        ("pid", .param "pid"),
+        ("by", .param "by"),
+        ("kind", .lit (.str "accept")),
+        ("comment", .lit (.str ""))
+      ]
+  }
 
 private def rejectStmt : Stmt :=
-  seqMany
-    [
-      assertMsg
-        (existsBy "proposals" (.eq (.col "pid") (.param "pid")))
-        "missingProposal",
-      assertMsg
-        (existsBy "proposals" (.and
-          (.eq (.col "pid") (.param "pid"))
-          (.eq (.col "to") (.param "by"))))
-        "unauthorized",
-      assertMsg
-        (.not (existsBy "decisions" (.eq (.col "pid") (.param "pid"))))
-        "alreadyDecided",
-      .insert "decisions" (.param "pid")
-        [
-          ("pid", .param "pid"),
-          ("by", .param "by"),
-          ("kind", .lit (.str "reject")),
-          ("comment", .param "comment")
-        ]
-    ]
+  dsl{
+    assertMsg
+      (existsBy "proposals" (.col "pid" === .param "pid"))
+      "missingProposal";
+    assertMsg
+      (existsBy "proposals"
+        ((.col "pid" === .param "pid") &&&
+         (.col "to" === .param "by")))
+      "unauthorized";
+    assertMsg
+      (.not (existsBy "decisions" (.col "pid" === .param "pid")))
+      "alreadyDecided";
+    .insert "decisions" (.param "pid")
+      [
+        ("pid", .param "pid"),
+        ("by", .param "by"),
+        ("kind", .lit (.str "reject")),
+        ("comment", .param "comment")
+      ]
+  }
 
 def handlers : Handler :=
   ({} : Handler)
@@ -288,32 +279,18 @@ def stepB (b : SB) (cmd : Cmd) : Except Err SB :=
   | .error e => .error (mapExecErr e)
 
 def acceptedDocQuery : Query :=
-  {
-    baseTable := "proposals"
-    joins :=
+  from "proposals"
+    using
       [
-        {
-          table := "decisions"
-          leftRef := "proposals.pid"
-          rightRef := "decisions.pid"
-        },
-        {
-          table := "histories"
-          leftRef := "proposals.did"
-          rightRef := "histories.did"
-        }
+        join "decisions" on "proposals.pid" == "decisions.pid",
+        join "histories" on "proposals.did" == "histories.did"
       ]
-    where? :=
-      some
-        (.and
-          (.and
-            (.eq (.col "proposals.pid") (.param "pid"))
-            (.eq (.col "proposals.from") (.param "from")))
-          (.and
-            (.eq (.col "decisions.kind") (.lit (.str "accept")))
-            (.eq (.col "proposals.hid") (.col "histories.hid"))))
-    project := ["histories.doc"]
-  }
+    where
+      (((.col "proposals.pid" === .param "pid") &&&
+        (.col "proposals.from" === .param "from")) &&&
+       ((.col "decisions.kind" === .lit (.str "accept")) &&&
+        (.col "proposals.hid" === .col "histories.hid")))
+    select ["histories.doc"]
 
 def queryB (b : SB) : Q → R
   | .AcceptedProposalFrom sender pid =>
