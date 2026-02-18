@@ -1,8 +1,8 @@
 import Std
 import DbAppVerification.Framework.SQLDSL
 import DbAppVerification.Framework.SQLDSLPostgres
-import DbAppVerification.Examples.ApprovalAuth.SpecA
-import DbAppVerification.Examples.ApprovalAuth.ImplB
+import DbAppVerification.Examples.ApprovalAuth.Spec
+import DbAppVerification.Examples.ApprovalAuth.DBImpl
 import DbAppVerification.Postgres.Client
 import DbAppVerification.Postgres.Encode
 

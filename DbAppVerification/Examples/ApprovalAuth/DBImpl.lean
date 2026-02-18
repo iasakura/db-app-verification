@@ -2,7 +2,7 @@ import Std
 import DbAppVerification.Framework.DB
 import DbAppVerification.Framework.ExportIO
 import DbAppVerification.Framework.SQLDSL
-import DbAppVerification.Examples.ApprovalAuth.SpecA
+import DbAppVerification.Examples.ApprovalAuth.Spec
 
 namespace DbAppVerification
 namespace Examples
@@ -333,6 +333,11 @@ def queryB (b : SB) : Q → R
               | _ => none
           | none => none
       | .error _ => none
+
+def tsB : Framework.TransitionSystem Cmd Err Q R where
+  State := SB
+  step := stepB
+  query := queryB
 
 def emitDDLString : String :=
   emitDDL approvalSchema

@@ -3,101 +3,82 @@ import Std
 namespace DbAppVerification
 namespace Framework
 
-universe uCmd uErr uResp uSA uSB uQ uR
+universe uCmd uErr uQ uR uState uSA uSB
 
-abbrev StepA (SA : Type uSA) (Cmd : Type uCmd) (Err : Type uErr) :=
-  SA → Cmd → Except Err SA
-
-abbrev StepB (SB : Type uSB) (Cmd : Type uCmd) (Err : Type uErr) :=
-  SB → Cmd → Except Err SB
-
-abbrev QueryA (SA : Type uSA) (Q : Type uQ) (R : Type uR) := SA → Q → R
-abbrev QueryB (SB : Type uSB) (Q : Type uQ) (R : Type uR) := SB → Q → R
+structure TransitionSystem
+    (Cmd : Type uCmd) (Err : Type uErr) (Q : Type uQ) (R : Type uR) where
+  State : Type uState
+  step : State → Cmd → Except Err State
+  query : State → Q → R
 
 /-- Refinement induced by an abstraction function. -/
 def RefOfAbs {SB : Type uSB} {SA : Type uSA} (abs : SB → SA) : SB → SA → Prop :=
   fun b a => abs b = a
 
-structure StepPreservation
-    {SA : Type uSA} {SB : Type uSB} {Cmd : Type uCmd} {Err : Type uErr}
-    (Ref : SB → SA → Prop)
-    (stepA : StepA SA Cmd Err)
-    (stepB : StepB SB Cmd Err) : Prop where
-  success :
+def TransitionSystem.run
+    {Cmd : Type uCmd} {Err : Type uErr} {Q : Type uQ} {R : Type uR}
+    (ts : TransitionSystem Cmd Err Q R) :
+    ts.State → List Cmd → Except Err ts.State
+  | s, [] => .ok s
+  | s, c :: cs =>
+      match ts.step s c with
+      | .ok s' => ts.run s' cs
+      | .error e => .error e
+
+structure Preservation
+    {Cmd : Type uCmd} {Err : Type uErr} {Q : Type uQ} {R : Type uR}
+    (tsImpl tsAbs : TransitionSystem Cmd Err Q R)
+    (Ref : tsImpl.State → tsAbs.State → Prop) : Prop where
+  step_success :
     ∀ {b a c a'},
       Ref b a →
-      stepA a c = .ok a' →
-      ∃ b', stepB b c = .ok b' ∧ Ref b' a'
-  errorAlign :
+      tsAbs.step a c = .ok a' →
+      ∃ b', tsImpl.step b c = .ok b' ∧ Ref b' a'
+  step_error_align :
     ∀ {b a c eB},
       Ref b a →
-      stepB b c = .error eB →
-      ∃ eA, stepA a c = .error eA ∧ eA = eB
-
-structure QueryPreservation
-    {SA : Type uSA} {SB : Type uSB} {Q : Type uQ} {R : Type uR}
-    (Ref : SB → SA → Prop)
-    (queryA : QueryA SA Q R)
-    (queryB : QueryB SB Q R) : Prop where
-  preserve : ∀ {b a q}, Ref b a → queryB b q = queryA a q
-
-def runA {SA : Type uSA} {Cmd : Type uCmd} {Err : Type uErr}
-    (stepA : StepA SA Cmd Err) : SA → List Cmd → Except Err SA
-  | s, [] => .ok s
-  | s, c :: cs =>
-      match stepA s c with
-      | .ok s' => runA stepA s' cs
-      | .error e => .error e
-
-def runB {SB : Type uSB} {Cmd : Type uCmd} {Err : Type uErr}
-    (stepB : StepB SB Cmd Err) : SB → List Cmd → Except Err SB
-  | s, [] => .ok s
-  | s, c :: cs =>
-      match stepB s c with
-      | .ok s' => runB stepB s' cs
-      | .error e => .error e
+      tsImpl.step b c = .error eB →
+      ∃ eA, tsAbs.step a c = .error eA ∧ eA = eB
+  query_preserve :
+    ∀ {b a q}, Ref b a → tsImpl.query b q = tsAbs.query a q
 
 /-- Main forward-simulation soundness over finite traces. -/
 theorem soundness
-    {SA : Type uSA} {SB : Type uSB} {Cmd : Type uCmd} {Err : Type uErr}
-    {Q : Type uQ} {R : Type uR}
-    (Ref : SB → SA → Prop)
-    (stepA : StepA SA Cmd Err)
-    (stepB : StepB SB Cmd Err)
-    (queryA : QueryA SA Q R)
-    (queryB : QueryB SB Q R)
-    (hStep : StepPreservation Ref stepA stepB)
-    (hQuery : QueryPreservation Ref queryA queryB)
-    {b0 : SB} {a0 : SA} {cmds : List Cmd} {bN : SB} {aN : SA}
+    {Cmd : Type uCmd} {Err : Type uErr} {Q : Type uQ} {R : Type uR}
+    (tsImpl tsAbs : TransitionSystem Cmd Err Q R)
+    (Ref : tsImpl.State → tsAbs.State → Prop)
+    (hPres : Preservation tsImpl tsAbs Ref)
+    {b0 : tsImpl.State} {a0 : tsAbs.State} {cmds : List Cmd}
+    {bN : tsImpl.State} {aN : tsAbs.State}
     (hRef0 : Ref b0 a0)
-    (hRunA : runA stepA a0 cmds = .ok aN)
-    (hRunB : runB stepB b0 cmds = .ok bN) :
-    Ref bN aN ∧ ∀ q, queryB bN q = queryA aN q := by
+    (hRunImpl : tsImpl.run b0 cmds = .ok bN)
+    (hRunAbs : tsAbs.run a0 cmds = .ok aN) :
+    Ref bN aN ∧ ∀ q, tsImpl.query bN q = tsAbs.query aN q := by
   induction cmds generalizing b0 a0 bN aN with
   | nil =>
-      simp [runA, runB] at hRunA hRunB
-      subst hRunA
-      subst hRunB
-      exact ⟨hRef0, fun q => hQuery.preserve hRef0⟩
+      simp [TransitionSystem.run] at hRunImpl hRunAbs
+      subst hRunImpl
+      subst hRunAbs
+      exact ⟨hRef0, fun q => hPres.query_preserve hRef0⟩
   | cons c cs ih =>
-      cases hAstep : stepA a0 c with
+      cases hAstep : tsAbs.step a0 c with
       | error e =>
-          simp [runA, hAstep] at hRunA
+          simp [TransitionSystem.run, hAstep] at hRunAbs
       | ok a1 =>
-          simp [runA, hAstep] at hRunA
-          cases hBstep : stepB b0 c with
+          simp [TransitionSystem.run, hAstep] at hRunAbs
+          cases hBstep : tsImpl.step b0 c with
           | error e =>
-              simp [runB, hBstep] at hRunB
+              simp [TransitionSystem.run, hBstep] at hRunImpl
           | ok b1run =>
-              simp [runB, hBstep] at hRunB
-              have hPres := hStep.success hRef0 hAstep
-              rcases hPres with ⟨b1, hBok, hRef1⟩
+              simp [TransitionSystem.run, hBstep] at hRunImpl
+              have hStep := hPres.step_success hRef0 hAstep
+              rcases hStep with ⟨b1, hBok, hRef1⟩
               have hb1eq : b1 = b1run := by
                 rw [hBstep] at hBok
                 cases hBok
                 rfl
               subst hb1eq
-              have hTail := ih hRef1 hRunA hRunB
+              have hTail := ih hRef1 hRunImpl hRunAbs
               rcases hTail with ⟨hRefN, hQueryN⟩
               exact ⟨hRefN, hQueryN⟩
 

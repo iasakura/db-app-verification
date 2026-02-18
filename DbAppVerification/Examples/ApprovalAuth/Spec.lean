@@ -1,4 +1,5 @@
 import Std
+import DbAppVerification.Framework.Core
 
 namespace DbAppVerification
 namespace Examples
@@ -120,6 +121,11 @@ def queryA (s : SA) : Q → R
           if sender' = sender then s.histContent.get? (did, hid) else none
       | _, _ =>
           none
+
+def tsA : Framework.TransitionSystem Cmd Err Q R where
+  State := SA
+  step := stepA
+  query := queryA
 
 end ApprovalAuth
 end Examples

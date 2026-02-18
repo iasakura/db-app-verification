@@ -1,8 +1,8 @@
 import Std
 import DbAppVerification.Framework.Core
 import DbAppVerification.Framework.DB
-import DbAppVerification.Examples.ApprovalAuth.SpecA
-import DbAppVerification.Examples.ApprovalAuth.ImplB
+import DbAppVerification.Examples.ApprovalAuth.Spec
+import DbAppVerification.Examples.ApprovalAuth.DBImpl
 
 namespace DbAppVerification
 namespace Examples
@@ -103,19 +103,17 @@ def abs (db : SB) : SA :=
 
 abbrev Ref : SB → SA → Prop := RefOfAbs abs
 
-/-- TODO: mechanize each constructor case directly against DSL semantics. -/
-axiom stepPreservation : StepPreservation Ref stepA stepB
-
-/-- TODO: discharge by unfolding accepted-doc query and proving row/map correspondence. -/
-axiom queryPreservation : QueryPreservation Ref queryA queryB
+/-- TODO: mechanize command and query preservation against DSL semantics. -/
+axiom preservation : Preservation tsB tsA Ref
 
 theorem approval_refinement_sound
-    {b0 : SB} {a0 : SA} {cmds : List Cmd} {bN : SB} {aN : SA}
+    {b0 : tsB.State} {a0 : tsA.State} {cmds : List Cmd}
+    {bN : tsB.State} {aN : tsA.State}
     (hRef0 : Ref b0 a0)
-    (hRunA : Framework.runA stepA a0 cmds = .ok aN)
-    (hRunB : Framework.runB stepB b0 cmds = .ok bN) :
-    Ref bN aN ∧ ∀ q, queryB bN q = queryA aN q := by
-  exact Framework.soundness Ref stepA stepB queryA queryB stepPreservation queryPreservation hRef0 hRunA hRunB
+    (hRunA : tsA.run a0 cmds = .ok aN)
+    (hRunB : tsB.run b0 cmds = .ok bN) :
+    Ref bN aN ∧ ∀ q, tsB.query bN q = tsA.query aN q := by
+  exact Framework.soundness tsB tsA Ref preservation hRef0 hRunB hRunA
 
 end ApprovalAuth
 end Examples

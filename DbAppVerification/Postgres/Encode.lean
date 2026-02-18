@@ -1,5 +1,5 @@
 import Std
-import DbAppVerification.Examples.ApprovalAuth.SpecA
+import DbAppVerification.Examples.ApprovalAuth.Spec
 
 namespace DbAppVerification
 namespace Postgres
