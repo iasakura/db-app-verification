@@ -12,9 +12,6 @@ open Framework
 
 private def natV (n : Nat) : Value := .int (Int.ofNat n)
 
-private def pairKeyNat (a b : Nat) : String :=
-  s!"{a}:{b}"
-
 def approvalSchema : Schema :=
   {
     tables :=
@@ -29,10 +26,10 @@ def approvalSchema : Schema :=
         },
         {
           name := "managers"
-          pkCol := "key"
+          pkCol := "mid"
+          pkCols := ["mid", "eid"]
           columns :=
             [
-              { name := "key", ty := .string, nullable := false },
               { name := "mid", ty := .int, nullable := false },
               { name := "eid", ty := .int, nullable := false }
             ]
@@ -94,15 +91,14 @@ private def existsBy (table : String) (pred : Pred) : Pred :=
 private def assertMsg (p : Pred) (msg : String) : Stmt :=
   .assert p msg
 
-private def employStmt : Stmt :=
+def employStmt : Stmt :=
   .insert "employees" (.param "eid") [
     ("eid", .param "eid")
   ]
 
 private def addManagerStmt : Stmt :=
-  .insert "managers" (.param "key")
+  .insert "managers" (.param "mid")
     [
-      ("key", .param "key"),
       ("mid", .param "mid"),
       ("eid", .param "eid")
     ]
@@ -215,13 +211,12 @@ def cmdTag : Cmd → String
   | .Accept _ _ => "Accept"
   | .Reject _ _ _ => "Reject"
 
-private def cmdParams : Cmd → ParamEnv
+def cmdParams : Cmd → ParamEnv
   | .Employ e =>
       ({} : ParamEnv)
         |>.insert "eid" (natV e)
   | .AddManager m e =>
       ({} : ParamEnv)
-        |>.insert "key" (.str (pairKeyNat m e))
         |>.insert "mid" (natV m)
         |>.insert "eid" (natV e)
   | .NewDocument did =>
@@ -249,7 +244,7 @@ private def cmdParams : Cmd → ParamEnv
         |>.insert "pid" (natV pid)
         |>.insert "comment" (.str comment)
 
-private def mapExecErr : ExecErr → Err
+def mapExecErr : ExecErr → Err
   | .assertFailed "notEmployed" => .notEmployed
   | .assertFailed "notManager" => .notManager
   | .assertFailed "missingDoc" => .missingDoc

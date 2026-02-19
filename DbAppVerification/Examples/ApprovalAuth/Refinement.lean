@@ -101,11 +101,161 @@ def abs (db : SB) : SA :=
     decision := absDecisions db.db
   }
 
-abbrev Refinement : SB → SA → Prop := RefOfAbs abs
+private def natV (n : Nat) : Value :=
+  .int (Int.ofNat n)
+
+private def employeeExists (db : DB) (eid : Nat) : Bool :=
+  (tableOrEmpty db "employees").contains (natV eid)
+
+private def documentExists (db : DB) (did : Nat) : Bool :=
+  (tableOrEmpty db "documents").contains (natV did)
+
+private def managerRelExists (db : DB) (m : Nat) (e : Nat) : Bool :=
+  (tableOrEmpty db "managers").toList.any fun (_, row) =>
+    rowNat? row "mid" == some m &&
+      rowNat? row "eid" == some e
+
+private def historyExists (db : DB) (did : Nat) (hid : Nat) : Bool :=
+  (tableOrEmpty db "histories").toList.any fun (_, row) =>
+    rowNat? row "did" == some did &&
+      rowNat? row "hid" == some hid
+
+private def proposalTargetOfPid? (db : DB) (pid : Nat) : Option Nat :=
+  match (tableOrEmpty db "proposals").get? (natV pid) with
+  | some row => rowNat? row "to"
+  | none => none
+
+private def proposalRowValid (db : DB) (row : Row) : Bool :=
+  match rowNat? row "pid", rowNat? row "from", rowNat? row "to", rowNat? row "did", rowNat? row "hid" with
+  | some _pid, some sender, some target, some did, some hid =>
+      employeeExists db sender &&
+        employeeExists db target &&
+        managerRelExists db target sender &&
+        documentExists db did &&
+        historyExists db did hid
+  | _, _, _, _, _ => false
+
+private def proposalsWellFormed (db : DB) : Bool :=
+  (tableOrEmpty db "proposals").toList.all fun (_, row) =>
+    proposalRowValid db row
+
+private def decisionRowValid (db : DB) (row : Row) : Bool :=
+  match rowNat? row "pid", rowNat? row "by", parseDecisionKind row with
+  | some pid, some actor, some _kind =>
+      match proposalTargetOfPid? db pid with
+      | some target => actor == target
+      | none => false
+  | _, _, _ => false
+
+private def decisionsWellFormed (db : DB) : Bool :=
+  (tableOrEmpty db "decisions").toList.all fun (_, row) =>
+    decisionRowValid db row
+
+def managersInvariantB (_b : SB) : Bool :=
+  true
+
+def proposalsInvariantB (b : SB) : Bool :=
+  proposalsWellFormed b.db
+
+def decisionsInvariantB (b : SB) : Bool :=
+  decisionsWellFormed b.db
+
+def crossTableInvariantB (_b : SB) : Bool :=
+  true
+
+def ManagersInvariant (b : SB) : Prop :=
+  managersInvariantB b = true
+
+def ProposalsInvariant (b : SB) : Prop :=
+  proposalsInvariantB b = true
+
+def DecisionsInvariant (b : SB) : Prop :=
+  decisionsInvariantB b = true
+
+def CrossTableInvariant (b : SB) : Prop :=
+  crossTableInvariantB b = true
+
+/-- Implementation-side invariant used by ApprovalAuth refinement. -/
+def ImplementationInvariant (b : SB) : Prop :=
+  stateInv b ∧
+    ManagersInvariant b ∧
+    ProposalsInvariant b ∧
+    DecisionsInvariant b ∧
+    CrossTableInvariant b
+
+/-- Refinement relation from SQL-side state to abstract state. -/
+abbrev Refinement : SB → SA → Prop :=
+  fun b a => And (RefOfAbs abs b a) (ImplementationInvariant b)
+
+theorem refinement_abs_eq {b : SB} {a : SA} (h : Refinement b a) : abs b = a :=
+  h.1
+
+theorem refinement_impl_inv {b : SB} {a : SA} (h : Refinement b a) : ImplementationInvariant b :=
+  h.2
+
+theorem refinement_state_inv_impl {b : SB} {a : SA} (h : Refinement b a) : stateInv b :=
+  (refinement_impl_inv h).1
+
+theorem refinement_state_inv_abs {b : SB} {a : SA} (_h : Refinement b a) : stateInv a := by
+  trivial
 
 /-- TODO: mechanize command and query preservation against DSL semantics. -/
 theorem preservation : Preservation tsB tsA Refinement := by
-  sorry
+  refine
+    {
+      refinement_inv_impl := ?_
+      refinement_inv_abs := ?_
+      step_success := ?_
+      step_error_align := ?_
+      query_preserve := ?_
+    }
+  · intro b a hRefinement
+    exact refinement_state_inv_impl hRefinement
+  · intro b a _hRefinement
+    exact refinement_state_inv_abs _hRefinement
+  · intro b a c b' hRefinement hStepB
+    have hAbs : abs b = a := refinement_abs_eq hRefinement
+    subst hAbs
+    cases c <;> simp [tsB, tsA, stepB, stepA, cmdTag] at hStepB ⊢
+    case Employ e =>
+      sorry
+    case AddManager m e =>
+      sorry
+    case NewDocument did =>
+      sorry
+    case AddHistory did hid doc =>
+      sorry
+    case Propose sender target did hid pid =>
+      sorry
+    case Accept actor pid =>
+      sorry
+    case Reject actor pid comment =>
+      sorry
+  · intro b a c eB hRefinement hStepB
+    have hAbs : abs b = a := refinement_abs_eq hRefinement
+    subst hAbs
+    cases c <;> simp [tsB, tsA, stepB, stepA, cmdTag] at hStepB ⊢
+    case Employ e =>
+      sorry
+    case AddManager m e =>
+      sorry
+    case NewDocument did =>
+      sorry
+    case AddHistory did hid doc =>
+      sorry
+    case Propose sender target did hid pid =>
+      sorry
+    case Accept actor pid =>
+      sorry
+    case Reject actor pid comment =>
+      sorry
+  · intro b a q hRefinement
+    have hAbs : abs b = a := refinement_abs_eq hRefinement
+    subst hAbs
+    cases q with
+    | AcceptedProposalFrom sender pid =>
+        simp [tsB, tsA, queryB, queryA]
+        sorry
 
 theorem approval_refinement_sound
     {b0 : tsB.State} {a0 : tsA.State} {cmds : List Cmd} {bN : tsB.State}

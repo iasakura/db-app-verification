@@ -151,11 +151,25 @@ private def expectedPkOfRow? (t : TableDecl) (row : Row) : Option Value :=
     | .ok pk => some pk
     | .error _ => none
 
+private def valueMatchesColType (v : Value) (ty : ColType) : Bool :=
+  match ty, v with
+  | .int, .int _ => true
+  | .string, .str _ => true
+  | .bool, .bool _ => true
+  | _, _ => false
+
+private def rowMatchesSchema (t : TableDecl) (row : Row) : Bool :=
+  t.columns.all fun c =>
+    match row.get? c.name with
+    | some v => valueMatchesColType v c.ty
+    | none => c.nullable
+
 private def tableIntegrity (t : TableDecl) (table : Table) : Bool :=
   (table.toList.all fun (entry : Value × Row) =>
-    match expectedPkOfRow? t entry.2 with
-    | some pk => pk == entry.1
-    | none => false)
+    rowMatchesSchema t entry.2 &&
+      match expectedPkOfRow? t entry.2 with
+      | some pk => pk == entry.1
+      | none => false)
 
 private def tableIntegrityInDB (db : DB) (t : TableDecl) : Bool :=
   match db.get? t.name with
@@ -180,7 +194,7 @@ def DBState.ofDB? (schema : Schema) (db : DB) : Except ExecErr (DBState schema) 
   else
     .error (.invalidProgram "integrityViolation")
 
-private def ensureDBStateIntegrity (schema : Schema) (db : DBState schema) : Except ExecErr Unit :=
+def ensureDBStateIntegrity (schema : Schema) (db : DBState schema) : Except ExecErr Unit :=
   if dbIntegrity schema db.db then
     .ok ()
   else
