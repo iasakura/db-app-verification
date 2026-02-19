@@ -1,5 +1,3 @@
-import Init.System.Mutex
-
 namespace DbAppVerification
 namespace Postgres
 
