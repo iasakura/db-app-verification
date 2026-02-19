@@ -93,27 +93,27 @@ private def absDecisions (db : DB) : Std.HashMap ProposalId (EmployeeId × Decis
 /-- Abstraction from implementation DB state to abstract model state. -/
 def abs (db : SB) : SA :=
   {
-    employed := absEmployed db
-    manager := absManagers db
-    docExists := absDocuments db
-    histContent := absHistories db
-    proposals := absProposals db
-    decision := absDecisions db
+    employed := absEmployed db.db
+    manager := absManagers db.db
+    docExists := absDocuments db.db
+    histContent := absHistories db.db
+    proposals := absProposals db.db
+    decision := absDecisions db.db
   }
 
-abbrev Ref : SB → SA → Prop := RefOfAbs abs
+abbrev Refinement : SB → SA → Prop := RefOfAbs abs
 
 /-- TODO: mechanize command and query preservation against DSL semantics. -/
-theorem preservation : Preservation tsB tsA Ref := by
+theorem preservation : Preservation tsB tsA Refinement := by
   sorry
 
 theorem approval_refinement_sound
     {b0 : tsB.State} {a0 : tsA.State} {cmds : List Cmd} {bN : tsB.State}
-    (hRef0 : Ref b0 a0)
+    (hRefinement0 : Refinement b0 a0)
     (hRunB : tsB.run b0 cmds = .ok bN) :
-    ∃ aN, tsA.run a0 cmds = .ok aN ∧ Ref bN aN ∧
+    ∃ aN, tsA.run a0 cmds = .ok aN ∧ Refinement bN aN ∧
       ∀ q, tsB.query bN q = tsA.query aN q := by
-  exact Framework.soundness tsB tsA Ref preservation hRef0 hRunB
+  exact Framework.soundness tsB tsA Refinement preservation hRefinement0 hRunB
 
 end ApprovalAuth
 end Examples

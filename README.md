@@ -41,7 +41,7 @@ An experimental Lean 4 repository that combines:
 - `DbAppVerification/Examples/ApprovalAuth/DBImpl.lean`
   - DSL implementation (`tsB`)
 - `DbAppVerification/Examples/ApprovalAuth/Refinement.lean`
-  - abstraction function `abs`, relation `Ref`, refinement theorem
+  - abstraction function `abs`, relation `Refinement`, refinement theorem
 - `Main.lean`
   - print/export DDL+SQL artifacts and run Postgres smoke checks
 
@@ -125,7 +125,7 @@ dsl{
 ## Current Status
 
 - `lake build` succeeds.
-- `preservation : Preservation tsB tsA Ref` in
+- `preservation : Preservation tsB tsA Refinement` in
   `DbAppVerification/Examples/ApprovalAuth/Refinement.lean`
   is still a `sorry`.
 - Open items are tracked in `TODO.md`.

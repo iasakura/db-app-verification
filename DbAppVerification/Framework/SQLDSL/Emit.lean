@@ -16,9 +16,17 @@ private def emitColumn (col : Column) : String :=
 private def emitFK (fk : ForeignKey) : String :=
   s!"FOREIGN KEY ({fk.col}) REFERENCES {fk.refTable}({fk.refCol})"
 
+private def emitPrimaryKey (t : TableDecl) : String :=
+  let cols :=
+    if t.pkCols.isEmpty then
+      [t.pkCol]
+    else
+      t.pkCols
+  s!"PRIMARY KEY ({String.intercalate ", " cols})"
+
 private def emitTableDDL (t : TableDecl) : String :=
   let cols := t.columns.map emitColumn
-  let pk := s!"PRIMARY KEY ({t.pkCol})"
+  let pk := emitPrimaryKey t
   let fks := t.fks.map emitFK
   let all := cols ++ [pk] ++ fks
   s!"CREATE TABLE {t.name} (\n  {String.intercalate ",\n  " all}\n);"

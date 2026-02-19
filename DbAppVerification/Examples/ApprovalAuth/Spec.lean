@@ -36,6 +36,9 @@ structure SA where
   decision : Std.HashMap ProposalId (EmployeeId × DecisionKind)
   deriving Repr
 
+instance : DbAppVerification.Framework.InvariantState SA where
+  inv := fun _ => True
+
 inductive Cmd where
   | Employ (e : EmployeeId)
   | AddManager (m : EmployeeId) (e : EmployeeId)
@@ -67,14 +70,26 @@ private def hasHistory (s : SA) (did : DocumentId) (hid : HistoryId) : Bool :=
 
 def stepA (s : SA) : Cmd → Except Err SA
   | .Employ e =>
-      .ok { s with employed := s.employed.insert e }
+      if s.employed.contains e then
+        .error .constraintViolation
+      else
+        .ok { s with employed := s.employed.insert e }
   | .AddManager m e =>
-      .ok { s with manager := s.manager.insert (m, e) }
+      if s.manager.contains (m, e) then
+        .error .constraintViolation
+      else
+        .ok { s with manager := s.manager.insert (m, e) }
   | .NewDocument did =>
-      .ok { s with docExists := s.docExists.insert did }
+      if s.docExists.contains did then
+        .error .constraintViolation
+      else
+        .ok { s with docExists := s.docExists.insert did }
   | .AddHistory did hid doc =>
       if s.docExists.contains did then
-        .ok { s with histContent := s.histContent.insert (did, hid) doc }
+        if (s.histContent.get? (did, hid)).isSome then
+          .error .constraintViolation
+        else
+          .ok { s with histContent := s.histContent.insert (did, hid) doc }
       else
         .error .missingDoc
   | .Propose sender target did hid pid =>
@@ -97,22 +112,22 @@ def stepA (s : SA) : Cmd → Except Err SA
       match s.proposals.get? pid with
       | none => .error .missingProposal
       | some (_sender, target, _did, _hid) =>
-          if (s.decision.get? pid).isSome then
-            .error .alreadyDecided
-          else if actor = target then
-            .ok { s with decision := s.decision.insert pid (actor, .accept) }
-          else
+          if actor ≠ target then
             .error .unauthorized
+          else if (s.decision.get? pid).isSome then
+            .error .alreadyDecided
+          else
+            .ok { s with decision := s.decision.insert pid (actor, .accept) }
   | .Reject actor pid comment =>
       match s.proposals.get? pid with
       | none => .error .missingProposal
       | some (_sender, target, _did, _hid) =>
-          if (s.decision.get? pid).isSome then
-            .error .alreadyDecided
-          else if actor = target then
-            .ok { s with decision := s.decision.insert pid (actor, .reject comment) }
-          else
+          if actor ≠ target then
             .error .unauthorized
+          else if (s.decision.get? pid).isSome then
+            .error .alreadyDecided
+          else
+            .ok { s with decision := s.decision.insert pid (actor, .reject comment) }
 
 def queryA (s : SA) : Q → R
   | .AcceptedProposalFrom sender pid =>

@@ -1,5 +1,6 @@
 import Std
 import DbAppVerification.Framework.DB
+import DbAppVerification.Framework.Core
 
 namespace DbAppVerification
 namespace Framework
@@ -25,6 +26,7 @@ structure ForeignKey where
 structure TableDecl where
   name : String
   pkCol : String
+  pkCols : List String := []
   columns : List Column
   fks : List ForeignKey := []
   deriving Repr, DecidableEq
@@ -111,6 +113,78 @@ private def mergeRow (a b : Row) : Row :=
 
 private def sortedRows (db : DB) (table : String) : Except ExecErr (List (Value × Row)) :=
   liftDB (DB.selectMany db table (fun _ => true))
+
+private def findTableDecl? (schema : Schema) (table : String) : Option TableDecl :=
+  schema.tables.foldl
+    (fun acc t => if t.name = table then some t else acc)
+    none
+
+private def encodePkPart : Value → String
+  | .int i => s!"i:{i}"
+  | .str s => s!"s:{s.length}:{s}"
+  | .bool b => if b then "b:1" else "b:0"
+
+private def compositePkValue (row : Row) (pkCols : List String) : Except ExecErr Value := do
+  let parts ←
+    pkCols.foldlM
+      (fun acc col => do
+        let v ← getRowCol row col
+        pure (acc.concat (encodePkPart v)))
+      ([] : List String)
+  pure (.str ("cmp:" ++ String.intercalate "|" parts))
+
+private def insertPkValue (schema : Schema) (table : String) (row : Row) (pkFromStmt : Value) :
+    Except ExecErr Value := do
+  match findTableDecl? schema table with
+  | none => pure pkFromStmt
+  | some t =>
+      if t.pkCols.isEmpty then
+        pure pkFromStmt
+      else
+        compositePkValue row t.pkCols
+
+private def expectedPkOfRow? (t : TableDecl) (row : Row) : Option Value :=
+  if t.pkCols.isEmpty then
+    row.get? t.pkCol
+  else
+    match compositePkValue row t.pkCols with
+    | .ok pk => some pk
+    | .error _ => none
+
+private def tableIntegrity (t : TableDecl) (table : Table) : Bool :=
+  (table.toList.all fun (entry : Value × Row) =>
+    match expectedPkOfRow? t entry.2 with
+    | some pk => pk == entry.1
+    | none => false)
+
+private def tableIntegrityInDB (db : DB) (t : TableDecl) : Bool :=
+  match db.get? t.name with
+  | none => true
+  | some table => tableIntegrity t table
+
+def dbIntegrity (schema : Schema) (db : DB) : Bool :=
+  schema.tables.all (tableIntegrityInDB db)
+
+structure DBState (schema : Schema) where
+  db : DB
+
+instance (schema : Schema) : DbAppVerification.Framework.InvariantState (DBState schema) where
+  inv := fun s => dbIntegrity schema s.db
+
+def DBState.empty (schema : Schema) : DBState schema :=
+  { db := {} }
+
+def DBState.ofDB? (schema : Schema) (db : DB) : Except ExecErr (DBState schema) :=
+  if dbIntegrity schema db then
+    .ok { db := db }
+  else
+    .error (.invalidProgram "integrityViolation")
+
+private def ensureDBStateIntegrity (schema : Schema) (db : DBState schema) : Except ExecErr Unit :=
+  if dbIntegrity schema db.db then
+    .ok ()
+  else
+    .error (.invalidProgram "integrityViolation")
 
 def evalExpr (env : EvalEnv) (ctx : Row) (e : Expr) : Except ExecErr Value :=
   match e with
@@ -208,13 +282,14 @@ end
 def execStmt (schema : Schema) (stmt : Stmt) (env : EvalEnv) (db : DB) : Except ExecErr (DB × EvalEnv) := do
   match stmt with
   | .insert table pkExpr cols =>
-      let pk ← evalExpr env {} pkExpr
+      let pkFromStmt ← evalExpr env {} pkExpr
       let row ←
         cols.foldlM
           (fun acc (name, e) => do
             let v ← evalExpr env {} e
             pure (acc.insert name v))
           ({} : Row)
+      let pk ← insertPkValue schema table row pkFromStmt
       let db' ← liftDB (DB.insert db table pk row)
       pure (db', env)
   | .deleteWhere table _pkCol pred =>
@@ -270,6 +345,12 @@ def execHandler (schema : Schema) (handlers : Handler)
   let env0 : EvalEnv := { params := params }
   let (db1, _) ← execStmt schema stmt env0 db0
   pure db1
+
+def execHandlerSafe (schema : Schema) (handlers : Handler)
+    (cmdTag : String) (params : ParamEnv) (db : DBState schema) : Except ExecErr (DBState schema) := do
+  let _ ← ensureDBStateIntegrity schema db
+  let db1 ← execHandler schema handlers cmdTag params db.db
+  DBState.ofDB? schema db1
 
 end Framework
 end DbAppVerification

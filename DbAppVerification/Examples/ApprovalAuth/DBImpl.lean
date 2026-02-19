@@ -10,8 +10,6 @@ namespace ApprovalAuth
 
 open Framework
 
-abbrev SB := DB
-
 private def natV (n : Nat) : Value := .int (Int.ofNat n)
 
 private def pairKeyNat (a b : Nat) : String :=
@@ -49,10 +47,10 @@ def approvalSchema : Schema :=
         },
         {
           name := "histories"
-          pkCol := "hkey"
+          pkCol := "did"
+          pkCols := ["did", "hid"]
           columns :=
             [
-              { name := "hkey", ty := .string, nullable := false },
               { name := "did", ty := .int, nullable := false },
               { name := "hid", ty := .int, nullable := false },
               { name := "doc", ty := .string, nullable := false }
@@ -88,6 +86,8 @@ def approvalSchema : Schema :=
       ]
   }
 
+abbrev SB := DBState approvalSchema
+
 private def existsBy (table : String) (pred : Pred) : Pred :=
   .exists { baseTable := table, where? := some pred, project := [] }
 
@@ -117,9 +117,8 @@ private def addHistoryStmt : Stmt :=
     assertMsg
       (existsBy "documents" (.col "did" === .param "did"))
       "missingDoc";
-    .insert "histories" (.param "hkey")
+    .insert "histories" (.param "did")
       [
-        ("hkey", .param "hkey"),
         ("did", .param "did"),
         ("hid", .param "hid"),
         ("doc", .param "doc")
@@ -230,7 +229,6 @@ private def cmdParams : Cmd → ParamEnv
         |>.insert "did" (natV did)
   | .AddHistory did hid doc =>
       ({} : ParamEnv)
-        |>.insert "hkey" (.str (pairKeyNat did hid))
         |>.insert "did" (natV did)
         |>.insert "hid" (natV hid)
         |>.insert "doc" (.str doc)
@@ -274,7 +272,7 @@ private def mapExecErr : ExecErr → Err
   | .assertFailed _ => .constraintViolation
 
 def stepB (b : SB) (cmd : Cmd) : Except Err SB :=
-  match execHandler approvalSchema handlers (cmdTag cmd) (cmdParams cmd) b with
+  match execHandlerSafe approvalSchema handlers (cmdTag cmd) (cmdParams cmd) b with
   | .ok b' => .ok b'
   | .error e => .error (mapExecErr e)
 
@@ -301,7 +299,7 @@ def queryB (b : SB) : Q → R
               |>.insert "from" (natV sender)
               |>.insert "pid" (natV pid)
         }
-      match evalQuery b env acceptedDocQuery with
+      match evalQuery b.db env acceptedDocQuery with
       | .ok rows =>
           match rows[0]? with
           | some row =>
