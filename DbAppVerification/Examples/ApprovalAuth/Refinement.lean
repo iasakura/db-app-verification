@@ -1,4 +1,5 @@
 import Std
+import Mathlib
 import DbAppVerification.Framework.Core
 import DbAppVerification.Framework.DB
 import DbAppVerification.Examples.ApprovalAuth.Spec
@@ -30,44 +31,44 @@ private def rowNat? (row : Row) (col : String) : Option Nat :=
 private def rowStr? (row : Row) (col : String) : Option String :=
   row.get? col >>= stringOfValue?
 
-private def absEmployed (db : DB) : Std.HashSet EmployeeId :=
+private def absEmployed (db : DB) : Finset EmployeeId :=
   (tableOrEmpty db "employees").toList.foldl
     (fun acc (_, row) =>
       match rowNat? row "eid" with
-      | some e => acc.insert e
+      | some e => insert e acc
       | none => acc)
     {}
 
-private def absManagers (db : DB) : Std.HashSet (EmployeeId × EmployeeId) :=
+private def absManagers (db : DB) : Finset (EmployeeId × EmployeeId) :=
   (tableOrEmpty db "managers").toList.foldl
     (fun acc (_, row) =>
       match rowNat? row "mid", rowNat? row "eid" with
-      | some m, some e => acc.insert (m, e)
+      | some m, some e => insert (m, e) acc
       | _, _ => acc)
     {}
 
-private def absDocuments (db : DB) : Std.HashSet DocumentId :=
+private def absDocuments (db : DB) : Finset DocumentId :=
   (tableOrEmpty db "documents").toList.foldl
     (fun acc (_, row) =>
       match rowNat? row "did" with
-      | some did => acc.insert did
+      | some did => insert did acc
       | none => acc)
     {}
 
-private def absHistories (db : DB) : Std.HashMap (DocumentId × HistoryId) Doc :=
+private def absHistories (db : DB) : Finset (DocumentId × HistoryId × Doc) :=
   (tableOrEmpty db "histories").toList.foldl
     (fun acc (_, row) =>
       match rowNat? row "did", rowNat? row "hid", rowStr? row "doc" with
-      | some did, some hid, some doc => acc.insert (did, hid) doc
+      | some did, some hid, some doc => insert (did, hid, doc) acc
       | _, _, _ => acc)
     {}
 
-private def absProposals (db : DB) : Std.HashMap ProposalId (EmployeeId × EmployeeId × DocumentId × HistoryId) :=
+private def absProposals (db : DB) : Finset (ProposalId × EmployeeId × EmployeeId × DocumentId × HistoryId) :=
   (tableOrEmpty db "proposals").toList.foldl
     (fun acc (_, row) =>
       match rowNat? row "pid", rowNat? row "from", rowNat? row "to", rowNat? row "did", rowNat? row "hid" with
       | some pid, some sender, some target, some did, some hid =>
-          acc.insert pid (sender, target, did, hid)
+          insert (pid, sender, target, did, hid) acc
       | _, _, _, _, _ => acc)
     {}
 
@@ -82,11 +83,11 @@ private def parseDecisionKind (row : Row) : Option DecisionKind :=
       some (.reject comment)
   | _ => none
 
-private def absDecisions (db : DB) : Std.HashMap ProposalId (EmployeeId × DecisionKind) :=
+private def absDecisions (db : DB) : Finset (ProposalId × EmployeeId × DecisionKind) :=
   (tableOrEmpty db "decisions").toList.foldl
     (fun acc (_, row) =>
       match rowNat? row "pid", rowNat? row "by", parseDecisionKind row with
-      | some pid, some actor, some k => acc.insert pid (actor, k)
+      | some pid, some actor, some k => insert (pid, actor, k) acc
       | _, _, _ => acc)
     {}
 
@@ -254,7 +255,7 @@ theorem preservation : Preservation tsB tsA Refinement := by
     subst hAbs
     cases q with
     | AcceptedProposalFrom sender pid =>
-        simp [tsB, tsA, queryB, queryA]
+        simp [tsB, tsA, queryB, queryA, evalQuery, acceptedDocQuery]
         sorry
 
 theorem approval_refinement_sound

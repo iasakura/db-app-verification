@@ -1,4 +1,4 @@
-import Std
+import Mathlib
 import DbAppVerification.Framework.Core
 
 namespace DbAppVerification
@@ -28,13 +28,12 @@ inductive Err where
   deriving Repr, DecidableEq
 
 structure SA where
-  employed : Std.HashSet EmployeeId
-  manager : Std.HashSet (EmployeeId × EmployeeId)
-  docExists : Std.HashSet DocumentId
-  histContent : Std.HashMap (DocumentId × HistoryId) Doc
-  proposals : Std.HashMap ProposalId (EmployeeId × EmployeeId × DocumentId × HistoryId)
-  decision : Std.HashMap ProposalId (EmployeeId × DecisionKind)
-  deriving Repr
+  employed : Finset EmployeeId
+  manager : Finset (EmployeeId × EmployeeId)
+  docExists : Finset DocumentId
+  histContent : Finset (DocumentId × HistoryId × Doc)
+  proposals : Finset (ProposalId × EmployeeId × EmployeeId × DocumentId × HistoryId)
+  decision : Finset (ProposalId × EmployeeId × DecisionKind)
 
 instance : DbAppVerification.Framework.InvariantState SA where
   inv := fun _ => True
@@ -65,79 +64,99 @@ def emptySA : SA :=
     decision := {}
   }
 
-private def hasHistory (s : SA) (did : DocumentId) (hid : HistoryId) : Bool :=
-  (s.histContent.get? (did, hid)).isSome
+private noncomputable def hasHistory (s : SA) (did : DocumentId) (hid : HistoryId) : Bool :=
+  s.histContent.toList.any fun
+    | (did', hid', _) => did' == did && hid' == hid
 
-def stepA (s : SA) : Cmd → Except Err SA
+private noncomputable def historyDocOf? (s : SA) (did : DocumentId) (hid : HistoryId) : Option Doc :=
+  (s.histContent.toList.find? fun
+      | (did', hid', _) => did' == did && hid' == hid).map fun
+    | (_, _, doc) => doc
+
+private noncomputable def proposalOf? (s : SA) (pid : ProposalId) :
+    Option (ProposalId × EmployeeId × EmployeeId × DocumentId × HistoryId) :=
+  s.proposals.toList.find? fun
+    | (pid', _, _, _, _) => pid' == pid
+
+private noncomputable def hasDecision (s : SA) (pid : ProposalId) : Bool :=
+  s.decision.toList.any fun
+    | (pid', _, _) => pid' == pid
+
+private noncomputable def decisionOf? (s : SA) (pid : ProposalId) :
+    Option (ProposalId × EmployeeId × DecisionKind) :=
+  s.decision.toList.find? fun
+    | (pid', _, _) => pid' == pid
+
+noncomputable def stepA (s : SA) : Cmd → Except Err SA
   | .Employ e =>
-      if s.employed.contains e then
+      if e ∈ s.employed then
         .error .constraintViolation
       else
-        .ok { s with employed := s.employed.insert e }
+        .ok { s with employed := insert e s.employed }
   | .AddManager m e =>
-      if s.manager.contains (m, e) then
+      if (m, e) ∈ s.manager then
         .error .constraintViolation
       else
-        .ok { s with manager := s.manager.insert (m, e) }
+        .ok { s with manager := insert (m, e) s.manager }
   | .NewDocument did =>
-      if s.docExists.contains did then
+      if did ∈ s.docExists then
         .error .constraintViolation
       else
-        .ok { s with docExists := s.docExists.insert did }
+        .ok { s with docExists := insert did s.docExists }
   | .AddHistory did hid doc =>
-      if s.docExists.contains did then
-        if (s.histContent.get? (did, hid)).isSome then
+      if did ∈ s.docExists then
+        if hasHistory s did hid then
           .error .constraintViolation
         else
-          .ok { s with histContent := s.histContent.insert (did, hid) doc }
+          .ok { s with histContent := insert (did, hid, doc) s.histContent }
       else
         .error .missingDoc
   | .Propose sender target did hid pid =>
-      if !s.employed.contains sender || !s.employed.contains target then
+      if sender ∉ s.employed || target ∉ s.employed then
         .error .notEmployed
-      else if !s.manager.contains (target, sender) then
+      else if (target, sender) ∉ s.manager then
         .error .notManager
-      else if !s.docExists.contains did then
+      else if did ∉ s.docExists then
         .error .missingDoc
       else if !(hasHistory s did hid) then
         .error .missingHistory
-      else if (s.proposals.get? pid).isSome then
+      else if (proposalOf? s pid).isSome then
         .error .constraintViolation
       else
         .ok {
           s with
-          proposals := s.proposals.insert pid (sender, target, did, hid)
+          proposals := insert (pid, sender, target, did, hid) s.proposals
         }
   | .Accept actor pid =>
-      match s.proposals.get? pid with
+      match proposalOf? s pid with
       | none => .error .missingProposal
-      | some (_sender, target, _did, _hid) =>
+      | some (_pid, _sender, target, _did, _hid) =>
           if actor ≠ target then
             .error .unauthorized
-          else if (s.decision.get? pid).isSome then
+          else if hasDecision s pid then
             .error .alreadyDecided
           else
-            .ok { s with decision := s.decision.insert pid (actor, .accept) }
+            .ok { s with decision := insert (pid, actor, .accept) s.decision }
   | .Reject actor pid comment =>
-      match s.proposals.get? pid with
+      match proposalOf? s pid with
       | none => .error .missingProposal
-      | some (_sender, target, _did, _hid) =>
+      | some (_pid, _sender, target, _did, _hid) =>
           if actor ≠ target then
             .error .unauthorized
-          else if (s.decision.get? pid).isSome then
+          else if hasDecision s pid then
             .error .alreadyDecided
           else
-            .ok { s with decision := s.decision.insert pid (actor, .reject comment) }
+            .ok { s with decision := insert (pid, actor, .reject comment) s.decision }
 
-def queryA (s : SA) : Q → R
+noncomputable def queryA (s : SA) : Q → R
   | .AcceptedProposalFrom sender pid =>
-      match s.proposals.get? pid, s.decision.get? pid with
-      | some (sender', _target, did, hid), some (_by, .accept) =>
-          if sender' = sender then s.histContent.get? (did, hid) else none
+      match proposalOf? s pid, decisionOf? s pid with
+      | some (_pid, sender', _target, did, hid), some (_pid', _by, .accept) =>
+          if sender' = sender then historyDocOf? s did hid else none
       | _, _ =>
           none
 
-def tsA : Framework.TransitionSystem Cmd Err Q R where
+noncomputable def tsA : Framework.TransitionSystem Cmd Err Q R where
   State := SA
   step := stepA
   query := queryA
