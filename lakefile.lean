@@ -3,6 +3,9 @@ open System Lake DSL
 
 package «db-app-verification» where
 
+require mathlib from git
+  "https://github.com/leanprover-community/mathlib4" @ "v4.28.0"
+
 lean_lib DbAppVerification where
 
 @[default_target]
